@@ -1,0 +1,42 @@
+{
+  "name": "htmltpostman",
+  "version": "1.0.0",
+  "description": "Convert ApiDoc HTML to Postman Collection v2.1.0 with real live response capture and automatic ID crawling",
+  "main": "src/index.js",
+  "type": "module",
+  "bin": {
+    "htmltpostman": "./bin/htmltpostman.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node ./bin/htmltpostman.js",
+    "test": "node --test tests/**/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hieubkbk10-hue/htmltopostman.git"
+  },
+  "keywords": [
+    "apidoc",
+    "postman",
+    "apiato",
+    "laravel",
+    "collection",
+    "generator",
+    "crawler"
+  ],
+  "author": "VTOS",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/hieubkbk10-hue/htmltopostman/issues"
+  },
+  "homepage": "https://github.com/hieubkbk10-hue/htmltopostman#readme",
+  "engines": {
+    "node": ">=18"
+  }
+}

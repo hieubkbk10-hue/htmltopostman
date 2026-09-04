@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Sample Apiato API Documentation</title>
+</head>
+<body>
+  <h1>Sample API Documentation</h1>
+  <h2>Apiato Private API</h2>
+
+  <script>
+    var api_data = [
+      {
+        "type": "post",
+        "url": "/v1/clients/web/login",
+        "title": "Login Client Web",
+        "name": "LoginClientWeb",
+        "group": "Authentication",
+        "version": "0.0.0",
+        "description": "<p>Authenticate web client with email and password</p>",
+        "parameter": {
+          "fields": {
+            "Parameter": [
+              {
+                "group": "Parameter",
+                "type": "String",
+                "optional": false,
+                "field": "email",
+                "description": "<p>User email</p>"
+              },
+              {
+                "group": "Parameter",
+                "type": "String",
+                "optional": false,
+                "field": "password",
+                "description": "<p>User password</p>"
+              }
+            ]
+          }
+        },
+        "body": [
+          {
+            "field": "email",
+            "type": "String",
+            "optional": false,
+            "defaultValue": "admin@example.com",
+            "description": "User email"
+          },
+          {
+            "field": "password",
+            "type": "String",
+            "optional": false,
+            "defaultValue": "password",
+            "description": "User password"
+          }
+        ],
+        "success": {
+          "examples": [
+            {
+              "title": "Success-Response:",
+              "content": "HTTP/1.1 200 OK\n{\n  \"token_type\": \"Bearer\",\n  \"access_token\": \"sample-jwt-token\"\n}",
+              "type": "json"
+            }
+          ]
+        }
+      },
+      {
+        "type": "get",
+        "url": "/v1/users",
+        "title": "List All Users",
+        "name": "ListAllUsers",
+        "group": "User",
+        "version": "0.0.0",
+        "description": "<p>Get list of users</p>",
+        "permission": [
+          { "name": "manage-users" }
+        ],
+        "parameter": {
+          "fields": {
+            "Parameter": [
+              {
+                "group": "Parameter",
+                "type": "Number",
+                "optional": true,
+                "field": "page",
+                "defaultValue": "1",
+                "description": "<p>Page number</p>"
+              }
+            ]
+          }
+        },
+        "success": {
+          "examples": [
+            {
+              "title": "Success-Response:",
+              "content": "HTTP/1.1 200 OK\n{\n  \"data\": [\n    { \"id\": 1, \"name\": \"Admin\" }\n  ]\n}",
+              "type": "json"
+            }
+          ]
+        }
+      }
+    ];
+  </script>
+</body>
+</html>

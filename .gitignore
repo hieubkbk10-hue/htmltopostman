@@ -1,0 +1,5 @@
+node_modules/
+output/
+*.log
+*.postman_collection.json
+.DS_Store
