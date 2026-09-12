@@ -72,3 +72,105 @@ test('buildPostmanCollection formats rich docs and multiple response examples', 
   assert.ok(names.some(n => n.includes('401 Unauthorized')));
   assert.ok(names.some(n => n.includes('422 Unprocessable Entity')));
 });
+
+test('buildPostmanCollection generates multi-row individual and combined includes without truncation', () => {
+  const project = { title: 'Support API' };
+  const endpoints = [
+    {
+      name: 'GetAllSupportCases',
+      title: 'Get All Support Cases',
+      group: 'SupportCase',
+      method: 'GET',
+      url: '/v1/support-cases',
+      permission: 'Authenticated',
+      exampleResponse: {
+        data: [],
+        meta: {
+          include: ['customer', 'serviceable', 'comments', 'lastComment'],
+          pagination: { total: 10 },
+        },
+      },
+    },
+    {
+      name: 'FindSupportCaseById',
+      title: 'Find Support Case by ID',
+      group: 'SupportCase',
+      method: 'GET',
+      url: '/v1/support-cases/:id',
+      permission: 'Authenticated',
+      params: [{ field: 'id', defaultValue: '1', optional: false }],
+      exampleResponse: { data: { id: 1 } },
+    },
+  ];
+
+  const liveResponses = new Map();
+  liveResponses.set('GetAllSupportCases', [
+    {
+      name: 'GET /v1/support-cases - Live Response',
+      status: 'OK',
+      code: 200,
+      body: JSON.stringify({
+        data: [{ id: 1, title: 'Case 1' }],
+        meta: {
+          include: ['customer', 'serviceable', 'comments', 'lastComment'],
+          pagination: { total: 1 },
+        },
+      }),
+    },
+    {
+      name: 'GET /v1/support-cases?include=customer,serviceable,comments,lastComment - Live Response (Eager Loading)',
+      status: 'OK',
+      code: 200,
+      body: JSON.stringify({
+        data: [{
+          id: 1,
+          customer: { data: { id: 3, name: 'Customer A' } },
+          comments: { data: [{ id: 5, body: 'Sample comment' }] },
+          lastComment: { data: { id: 5 } },
+        }],
+      }),
+    },
+  ]);
+
+  const collection = buildPostmanCollection({
+    project,
+    endpoints,
+    baseUrl: 'https://api.test',
+    token: 'jwt-token',
+    liveResponses,
+  });
+
+  const supportGroup = collection.item.find(i => i.name === 'SupportCase');
+  assert.ok(supportGroup, 'SupportCase folder should exist');
+
+  const listEndpoint = supportGroup.item.find(i => i.name === 'Get All Support Cases');
+  assert.ok(listEndpoint, 'Get All Support Cases should exist');
+
+  // Verify multi-row includes
+  const listIncludeParams = listEndpoint.request.url.query.filter(q => q.key === 'include');
+  assert.equal(listIncludeParams.length, 5, 'Should have 1 combined row + 4 individual rows');
+
+  // 1. Combined row
+  assert.equal(listIncludeParams[0].value, 'customer,serviceable,comments,lastComment');
+  assert.equal(listIncludeParams[0].disabled, true);
+
+  // 2-5. Individual rows
+  assert.equal(listIncludeParams[1].value, 'customer');
+  assert.equal(listIncludeParams[2].value, 'serviceable');
+  assert.equal(listIncludeParams[3].value, 'comments');
+  assert.equal(listIncludeParams[4].value, 'lastComment');
+
+  // Verify multiple live responses saved in examples
+  assert.ok(listEndpoint.response.length >= 2);
+  const respNames = listEndpoint.response.map(r => r.name);
+  assert.ok(respNames.some(n => n.includes('Eager Loading')));
+
+  // Verify Detail Endpoint inherits all includes from resource
+  const detailEndpoint = supportGroup.item.find(i => i.name === 'Find Support Case by ID');
+  assert.ok(detailEndpoint, 'Find Support Case by ID should exist');
+  const detailIncludeParams = detailEndpoint.request.url.query.filter(q => q.key === 'include');
+  assert.equal(detailIncludeParams.length, 5, 'Detail endpoint should inherit all 5 include rows');
+  assert.equal(detailIncludeParams[3].value, 'comments');
+  assert.equal(detailIncludeParams[4].value, 'lastComment');
+});
+

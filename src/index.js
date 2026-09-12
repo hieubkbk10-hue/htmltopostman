@@ -117,6 +117,7 @@ export async function runCli(argv = process.argv.slice(2)) {
         baseUrl,
         token,
         endpoints,
+        includePatch: args.includePatch,
         patchLimit: args.patchLimit,
       });
     } else {
@@ -208,7 +209,8 @@ Options:
   --email <email>       Admin login email (default: admin@admin.com)
   --password <pass>     Admin login password (default: admin)
   --output <path>, -o   Output JSON collection file path (defaults to ./output/)
-  --patch-limit <num>   Maximum PATCH requests to invoke (default: 20)
+  --include-patch       Optionally enable live PATCH execution (default: false, safe GET-only)
+  --patch-limit <num>   Maximum PATCH requests if enabled (default: 20)
   --no-live             Offline mode: skip live API requests and use doc examples
   --help, -h            Show this help message
 

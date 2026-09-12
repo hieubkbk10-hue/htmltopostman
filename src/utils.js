@@ -28,6 +28,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
     password: 'admin',
     output: '',
     patchLimit: 20,
+    includePatch: false,
     noLive: false,
     help: false,
   };
@@ -39,6 +40,8 @@ export function parseArgs(argv = process.argv.slice(2)) {
       args.help = true;
     } else if (arg === '--no-live') {
       args.noLive = true;
+    } else if (arg === '--include-patch') {
+      args.includePatch = true;
     } else if (arg === '--html' && i + 1 < argv.length) {
       args.html = argv[++i];
     } else if (arg.startsWith('--html=')) {

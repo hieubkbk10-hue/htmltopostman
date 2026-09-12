@@ -77,7 +77,10 @@ function extractRawEndpoints(htmlContent) {
 }
 
 function normalizeEndpoint(item) {
-  const method = (item.type || 'GET').toUpperCase();
+  let method = (item.type || 'GET').toUpperCase();
+  if (method.includes('/')) {
+    method = (Array.isArray(item.body) && item.body.length > 0) ? 'POST' : 'GET';
+  }
   const rawUrl = item.url || '';
   const group = item.group || 'General';
   const groupTitle = item.groupTitle || group;
@@ -115,6 +118,28 @@ function normalizeEndpoint(item) {
       description: cleanHtml(p.description || ''),
       allowedValues: p.allowedValues || [],
     });
+  }
+
+  // Extract Query Parameters (Apiato @apiQuery, item.query, or item.parameter.fields.Query)
+  const query = [];
+  const rawQueryList = [];
+  if (Array.isArray(item.query)) {
+    rawQueryList.push(...item.query);
+  }
+  if (Array.isArray(item.parameter?.fields?.Query)) {
+    rawQueryList.push(...item.parameter.fields.Query);
+  }
+  for (const q of rawQueryList) {
+    if (!query.some(existing => existing.field === q.field)) {
+      query.push({
+        field: q.field,
+        type: q.type || 'String',
+        optional: !!q.optional,
+        defaultValue: q.defaultValue || '',
+        description: cleanHtml(q.description || ''),
+        allowedValues: q.allowedValues || [],
+      });
+    }
   }
 
   // Extract Request Body Fields
@@ -167,6 +192,7 @@ function normalizeEndpoint(item) {
     permission,
     headers,
     params,
+    query,
     body,
     exampleResponse,
     raw: item,

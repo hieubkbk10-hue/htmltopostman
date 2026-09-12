@@ -28,4 +28,5 @@ test('parseApiDocHtml parses sample fixture HTML documentation', () => {
   assert.equal(usersEndpoint.method, 'GET');
   assert.equal(usersEndpoint.permission, 'manage-users');
   assert.ok(usersEndpoint.exampleResponse);
+  assert.ok(Array.isArray(usersEndpoint.query));
 });
