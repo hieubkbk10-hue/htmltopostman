@@ -29,7 +29,13 @@ export function parseArgs(argv = process.argv.slice(2)) {
     output: '',
     patchLimit: 20,
     includePatch: false,
+    includePost: false,
+    postLimit: 10,
     noLive: false,
+    noContext: false,
+    concurrency: 4,
+    filterGroup: '',
+    filterMethod: '',
     help: false,
   };
 
@@ -42,6 +48,10 @@ export function parseArgs(argv = process.argv.slice(2)) {
       args.noLive = true;
     } else if (arg === '--include-patch') {
       args.includePatch = true;
+    } else if (arg === '--include-post') {
+      args.includePost = true;
+    } else if (arg === '--no-context') {
+      args.noContext = true;
     } else if (arg === '--html' && i + 1 < argv.length) {
       args.html = argv[++i];
     } else if (arg.startsWith('--html=')) {
@@ -57,7 +67,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
     } else if (arg === '--email' && i + 1 < argv.length) {
       args.email = argv[++i];
     } else if (arg.startsWith('--email=')) {
-      args.email = arg.split('=')[1];
+      args.email = argv[++i];
     } else if (arg === '--password' && i + 1 < argv.length) {
       args.password = argv[++i];
     } else if (arg.startsWith('--password=')) {
@@ -70,6 +80,22 @@ export function parseArgs(argv = process.argv.slice(2)) {
       args.patchLimit = parseInt(argv[++i], 10) || 20;
     } else if (arg.startsWith('--patch-limit=')) {
       args.patchLimit = parseInt(arg.split('=')[1], 10) || 20;
+    } else if (arg === '--post-limit' && i + 1 < argv.length) {
+      args.postLimit = parseInt(argv[++i], 10) || 10;
+    } else if (arg.startsWith('--post-limit=')) {
+      args.postLimit = parseInt(arg.split('=')[1], 10) || 10;
+    } else if (arg === '--concurrency' && i + 1 < argv.length) {
+      args.concurrency = Math.max(1, parseInt(argv[++i], 10) || 4);
+    } else if (arg.startsWith('--concurrency=')) {
+      args.concurrency = Math.max(1, parseInt(arg.split('=')[1], 10) || 4);
+    } else if (arg === '--filter-group' && i + 1 < argv.length) {
+      args.filterGroup = argv[++i];
+    } else if (arg.startsWith('--filter-group=')) {
+      args.filterGroup = arg.split('=').slice(1).join('=');
+    } else if (arg === '--filter-method' && i + 1 < argv.length) {
+      args.filterMethod = argv[++i];
+    } else if (arg.startsWith('--filter-method=')) {
+      args.filterMethod = arg.split('=')[1];
     } else if (!args.html && !arg.startsWith('-')) {
       args.html = arg;
     }

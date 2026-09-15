@@ -62,7 +62,7 @@ test('runLiveApiRequests crawls IDs from list and calls detail and patch endpoin
   ];
 
   try {
-    const responsesMap = await runLiveApiRequests({
+    const { responsesMap, runLog } = await runLiveApiRequests({
       baseUrl,
       token: 'test-token',
       endpoints,
@@ -71,6 +71,8 @@ test('runLiveApiRequests crawls IDs from list and calls detail and patch endpoin
     });
 
     assert.equal(responsesMap.size, 3);
+    assert.ok(Array.isArray(runLog));
+    assert.ok(runLog.every(e => typeof e.url === 'string'));
     assert.ok(calledUrls.includes('GET /v1/users'));
     assert.ok(calledUrls.includes('GET /v1/users/user-id-999'));
     assert.ok(calledUrls.includes('PATCH /v1/users/user-id-999'));
@@ -150,7 +152,7 @@ test('runLiveApiRequests in safe GET-only mode resolves query parameters and ski
   ];
 
   try {
-    const responsesMap = await runLiveApiRequests({
+    const { responsesMap, runLog: runLog2 } = await runLiveApiRequests({
       baseUrl,
       token: 'test-token',
       endpoints,
@@ -158,6 +160,7 @@ test('runLiveApiRequests in safe GET-only mode resolves query parameters and ski
     });
 
     assert.equal(responsesMap.size, 3); // 3 GET endpoints captured, PATCH skipped
+    assert.ok(Array.isArray(runLog2));
     assert.ok(calledUrls.includes('GET /v1/domains'));
     assert.ok(calledUrls.some(u => u.startsWith('GET /v1/domains/check-whois?domain=')));
     assert.ok(calledUrls.includes('GET /v1/domains/1'));

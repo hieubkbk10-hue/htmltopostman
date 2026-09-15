@@ -76,6 +76,101 @@ function extractRawEndpoints(htmlContent) {
   return [];
 }
 
+// ApiDoc stores permission either as [{name}] (old) or as plain PHP-ish strings
+// like "Authenticated ['permissions' => 'manage-domains', 'roles' => ''] | isCustomer" (Apiato).
+function normalizePermission(raw) {
+  let list = [];
+  if (Array.isArray(raw)) {
+    list = raw.map(p => (typeof p === 'string' ? p : (p && p.name) || ''));
+  } else if (typeof raw === 'string' && raw.trim()) {
+    list = [raw];
+  }
+
+  let isPublic = false;
+  const names = [];
+
+  for (const entry of list) {
+    const s = String(entry).trim();
+    if (!s) continue;
+    if (/unauthenticated/i.test(s)) {
+      isPublic = true;
+      continue;
+    }
+    const permMatch = s.match(/'permissions'\s*=>\s*'([^']*)'/);
+    if (permMatch) {
+      for (const p of permMatch[1].split(',')) {
+        const trimmed = p.trim();
+        if (trimmed && !names.includes(trimmed)) names.push(trimmed);
+      }
+    } else if (/^none$/i.test(s)) {
+      isPublic = true;
+    } else if (!/^Authenticated\b/i.test(s) && !names.includes(s)) {
+      names.push(s);
+    }
+  }
+
+  const permission = names.length > 0
+    ? names.join(', ')
+    : (isPublic ? 'Unauthenticated' : 'Authenticated');
+
+  return { permission, permissionNames: names, isPublic };
+}
+
+function extractFieldDocs(fieldsObj) {
+  if (!fieldsObj || typeof fieldsObj !== 'object') return [];
+  const out = [];
+  for (const groupKey of Object.keys(fieldsObj)) {
+    const arr = fieldsObj[groupKey];
+    if (!Array.isArray(arr)) continue;
+    for (const f of arr) {
+      out.push({
+        group: groupKey,
+        field: f.field,
+        type: f.type || 'String',
+        optional: !!f.optional,
+        defaultValue: f.defaultValue ?? '',
+        description: cleanHtml(f.description || ''),
+        allowedValues: f.allowedValues || [],
+        size: f.size || '',
+      });
+    }
+  }
+  return out;
+}
+
+function extractStatusExamples(examplesArr) {
+  if (!Array.isArray(examplesArr)) return [];
+  const out = [];
+  for (const ex of examplesArr) {
+    const rawContent = typeof ex === 'string' ? ex : (ex.content || '');
+    if (!rawContent) continue;
+    const statusMatch = rawContent.match(/HTTP\/[\d.]+\s+(\d+)\s*([^\r\n]*)/i);
+    const code = statusMatch ? parseInt(statusMatch[1], 10) : null;
+    const status = statusMatch ? (statusMatch[2].trim() || null) : null;
+    const jsonStart = Math.min(
+      ...[rawContent.indexOf('{'), rawContent.indexOf('[')].filter(i => i !== -1),
+    );
+    let body;
+    if (Number.isFinite(jsonStart) && jsonStart >= 0) {
+      const jsonText = rawContent.substring(jsonStart).trim();
+      body = safeJsonParse(jsonText, jsonText);
+    } else {
+      body = rawContent.trim();
+    }
+    out.push({ code, status, title: (ex && ex.title) || '', body });
+  }
+  return out;
+}
+
+function extractExampleResponse(item) {
+  const examples = item.success?.examples || [];
+  for (const ex of examples) {
+    const parsed = extractStatusExamples([ex])[0];
+    if (parsed && parsed.body !== undefined) return parsed.body;
+  }
+  return null;
+}
+
 function normalizeEndpoint(item) {
   let method = (item.type || 'GET').toUpperCase();
   if (method.includes('/')) {
@@ -88,47 +183,20 @@ function normalizeEndpoint(item) {
   const title = item.title || name;
   const description = cleanHtml(item.description || '');
 
-  // Extract Permission
-  let permission = 'Authenticated';
-  if (Array.isArray(item.permission) && item.permission.length > 0) {
-    permission = item.permission.map(p => p.name).join(', ');
-  }
+  const { permission, permissionNames, isPublic } = normalizePermission(item.permission);
 
-  // Extract Headers
-  const headers = [];
-  const headerFields = item.header?.fields?.Header || [];
-  for (const h of headerFields) {
-    headers.push({
-      key: h.field,
-      value: h.defaultValue || (h.field.toLowerCase() === 'accept' ? 'application/json' : ''),
-      description: cleanHtml(h.description || ''),
-      optional: !!h.optional,
-    });
-  }
+  // Headers
+  const headers = extractFieldDocs(item.header?.fields);
 
-  // Extract Query and Path Parameters
-  const params = [];
-  const paramFields = item.parameter?.fields?.Parameter || [];
-  for (const p of paramFields) {
-    params.push({
-      field: p.field,
-      type: p.type || 'String',
-      optional: !!p.optional,
-      defaultValue: p.defaultValue || '',
-      description: cleanHtml(p.description || ''),
-      allowedValues: p.allowedValues || [],
-    });
-  }
+  // Path / body params from Parameter group
+  const paramFields = extractFieldDocs(item.parameter?.fields);
+  const params = paramFields.filter(f => f.group === 'Parameter' || !f.group);
 
-  // Extract Query Parameters (Apiato @apiQuery, item.query, or item.parameter.fields.Query)
+  // Query Parameters
   const query = [];
   const rawQueryList = [];
-  if (Array.isArray(item.query)) {
-    rawQueryList.push(...item.query);
-  }
-  if (Array.isArray(item.parameter?.fields?.Query)) {
-    rawQueryList.push(...item.parameter.fields.Query);
-  }
+  if (Array.isArray(item.query)) rawQueryList.push(...item.query);
+  if (Array.isArray(item.parameter?.fields?.Query)) rawQueryList.push(...item.parameter.fields.Query);
   for (const q of rawQueryList) {
     if (!query.some(existing => existing.field === q.field)) {
       query.push({
@@ -142,44 +210,24 @@ function normalizeEndpoint(item) {
     }
   }
 
-  // Extract Request Body Fields
-  const bodyFields = item.body || [];
-  const body = [];
-  for (const b of bodyFields) {
-    body.push({
-      field: b.field,
-      type: b.type || 'String',
-      optional: !!b.optional,
-      defaultValue: b.defaultValue || '',
-      description: cleanHtml(b.description || ''),
-      allowedValues: b.allowedValues || [],
-    });
-  }
+  // Request Body Fields (Apiato body entries are usually group: 'Body')
+  const body = (item.body || []).map(b => ({
+    field: b.field,
+    type: b.type || 'String',
+    optional: !!b.optional,
+    defaultValue: b.defaultValue || '',
+    description: cleanHtml(b.description || ''),
+    allowedValues: b.allowedValues || [],
+    size: b.size || '',
+  }));
 
-  // Extract Example Response
-  let exampleResponse = null;
-  const examples = item.success?.examples || [];
-  if (examples.length > 0) {
-    const rawContent = examples[0].content || '';
-    // Format is usually HTTP/1.1 200 OK\n{...}
-    const jsonStart = rawContent.indexOf('{');
-    const arrayStart = rawContent.indexOf('[');
-    let startIdx = -1;
-    if (jsonStart !== -1 && arrayStart !== -1) {
-      startIdx = Math.min(jsonStart, arrayStart);
-    } else if (jsonStart !== -1) {
-      startIdx = jsonStart;
-    } else if (arrayStart !== -1) {
-      startIdx = arrayStart;
-    }
+  // Response + error field docs (newly extracted — previously dropped)
+  const responseFields = extractFieldDocs(item.success?.fields);
+  const errorFields = extractFieldDocs(item.error?.fields);
+  const errorExamples = extractStatusExamples(item.error?.examples);
+  const successExamples = extractStatusExamples(item.success?.examples);
 
-    if (startIdx !== -1) {
-      const jsonText = rawContent.substring(startIdx).trim();
-      exampleResponse = safeJsonParse(jsonText, jsonText);
-    } else {
-      exampleResponse = rawContent.trim();
-    }
-  }
+  const exampleResponse = extractExampleResponse(item);
 
   return {
     name,
@@ -188,12 +236,21 @@ function normalizeEndpoint(item) {
     groupTitle,
     method,
     url: rawUrl,
+    version: item.version || '',
+    filename: item.filename || '',
+    deprecated: !!(item.deprecated || item.sameDomain === false),
     description,
     permission,
+    permissionNames,
+    isPublic,
     headers,
     params,
     query,
     body,
+    responseFields,
+    errorFields,
+    successExamples,
+    errorExamples,
     exampleResponse,
     raw: item,
   };
