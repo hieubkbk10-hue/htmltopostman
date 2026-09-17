@@ -5,6 +5,9 @@ import { parseArgs, normalizeBaseUrl, cleanHtml, safeJsonParse } from '../src/ut
 test('parseArgs parses CLI arguments properly', () => {
   const args = parseArgs([
     '--html', 'path/to/docs.html',
+    '--old', 'path/to/old-docs.html',
+    '--old-framework', 'Laravel 9.x',
+    '--framework', 'Laravel 11.x',
     '--base-url', 'https://api.example.com',
     '--email', 'user@example.com',
     '--password', 'secret',
@@ -14,6 +17,9 @@ test('parseArgs parses CLI arguments properly', () => {
   ]);
 
   assert.equal(args.html, 'path/to/docs.html');
+  assert.equal(args.old, 'path/to/old-docs.html');
+  assert.equal(args.oldFramework, 'Laravel 9.x');
+  assert.equal(args.framework, 'Laravel 11.x');
   assert.equal(args.baseUrl, 'https://api.example.com');
   assert.equal(args.email, 'user@example.com');
   assert.equal(args.password, 'secret');
@@ -30,6 +36,10 @@ test('normalizeBaseUrl ensures protocol and strips trailing slashes', () => {
 
 test('cleanHtml removes HTML tags and decodes entities', () => {
   assert.equal(cleanHtml('<p>Hello &quot;World&quot;</p>'), 'Hello "World"');
+});
+
+test('cleanHtml preserves Vietnamese accents and decodes numeric entities', () => {
+  assert.equal(cleanHtml('<p>Quản lý tên miền &#x1ebf; &amp; dữ liệu&nbsp;</p>'), 'Quản lý tên miền ế & dữ liệu');
 });
 
 test('safeJsonParse parses valid json and returns fallback on invalid', () => {

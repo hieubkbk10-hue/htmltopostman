@@ -2,12 +2,24 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { cleanHtml, safeJsonParse } from './utils.js';
 
+function readHtmlFile(htmlFilePath) {
+  const bytes = fs.readFileSync(htmlFilePath);
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return bytes.subarray(3).toString('utf8');
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+}
+
 export function parseApiDocHtml(htmlFilePath) {
   if (!fs.existsSync(htmlFilePath)) {
     throw new Error(`HTML documentation file not found: ${htmlFilePath}`);
   }
 
-  const content = fs.readFileSync(htmlFilePath, 'utf8');
+  const content = readHtmlFile(htmlFilePath);
 
   // 1. Extract Project Info
   const titleMatch = content.match(/<title>([^<]+)<\/title>/i);

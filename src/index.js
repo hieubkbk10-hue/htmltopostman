@@ -5,6 +5,7 @@ import { parseApiDocHtml } from './parser.js';
 import { loginAdmin } from './auth.js';
 import { runLiveApiRequests } from './runner.js';
 import { buildPostmanCollection, buildPostmanEnvironment } from './postman.js';
+import { diffEndpoints, buildChangelogJson, buildChangelogHtml } from './diff.js';
 
 export async function runCli(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
@@ -60,6 +61,41 @@ export async function runCli(argv = process.argv.slice(2)) {
     if (endpoints.length === 0) {
       console.warn(colors.yellow('Warning: filters removed all endpoints — nothing to generate.'));
     }
+  }
+
+  let changelog = null;
+  if (args.old) {
+    const oldPath = args.old.replace(/^['"]|['"]$/g, '');
+    if (!fs.existsSync(oldPath)) {
+      console.error(colors.red(`Error: File not found at "${oldPath}"`));
+      process.exit(1);
+    }
+    console.log(colors.cyan(`Comparing previous ApiDoc HTML: ${oldPath}...`));
+    const oldParsed = parseApiDocHtml(oldPath);
+    let oldEndpoints = oldParsed.endpoints;
+    if (args.filterGroup) {
+      const needle = args.filterGroup.toLowerCase();
+      oldEndpoints = oldEndpoints.filter(ep => ((ep.groupTitle || ep.group || '').toLowerCase().includes(needle)));
+    }
+    if (args.filterMethod) {
+      const needle = args.filterMethod.trim().toUpperCase();
+      oldEndpoints = oldEndpoints.filter(ep => (ep.method || '').toUpperCase() === needle);
+    }
+    const endpointDiff = diffEndpoints(oldEndpoints, endpoints);
+    changelog = buildChangelogJson({
+      oldFile: oldPath,
+      newFile: htmlPath,
+      oldProject: oldParsed.project,
+      newProject: project,
+      oldCount: oldEndpoints.length,
+      newCount: endpoints.length,
+      oldFramework: args.oldFramework,
+      framework: args.framework,
+      oldDate: getDocumentDate(oldPath),
+      currentDate: getDocumentDate(htmlPath),
+      diff: endpointDiff,
+    });
+    console.log(colors.yellow(`API changes: ${changelog.summary.breaking} breaking, ${changelog.summary.changed} changed, ${changelog.summary.added} added.`));
   }
 
   // 3. Resolve Base URL & Live Mode
@@ -182,35 +218,32 @@ export async function runCli(argv = process.argv.slice(2)) {
   // 7. Build companion artefacts
   const environment = buildPostmanEnvironment({ project, baseUrl: baseUrl || '{{base_url}}', token, email: args.email, password: args.password });
   const context = buildContextJson({
-    project, endpoints, liveResponses, runLog, authMeta, baseUrl, args, totalParsed,
+    project, endpoints, liveResponses, runLog, authMeta, baseUrl, args, totalParsed, changelog,
   });
   const openApiSpec = buildOpenApiSpec({ project, endpoints, baseUrl: baseUrl || 'https://api.example.com' });
 
   // 8. Save all outputs — by default into output/ (cleaned) or to a single path if --output given
   const timestamp = getFormattedTimestamp();
-  const apiName = (project.title || 'apiato').toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+  const apiName = (project.title || 'apiato')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd').replace(/Đ/g, 'D')
+    .toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'apiato';
   const baseName = `${timestamp}_${apiName}`;
 
   const ensureDir = (p) => fs.mkdirSync(path.dirname(p), { recursive: true });
 
   if (args.output) {
-    // Single collection path given — companion files go beside it using the same baseName
     const collectionPath = path.resolve(process.cwd(), args.output);
     ensureDir(collectionPath);
-    fs.writeFileSync(collectionPath, JSON.stringify(collection, null, 2), 'utf8');
     const dir = path.dirname(collectionPath);
     const withoutExt = path.basename(collectionPath).replace(/\.postman_collection\.json$/i, '').replace(/\.json$/i, '') || baseName;
     const envPath = path.join(dir, `${withoutExt}.postman_environment.json`);
     const ctxPath = path.join(dir, `${withoutExt}.context.json`);
     const logPath = path.join(dir, `${withoutExt}.run-log.json`);
     const oasPath = path.join(dir, `${withoutExt}.openapi.json`);
-    fs.writeFileSync(envPath, JSON.stringify(environment, null, 2), 'utf8');
-    if (!args.noContext) {
-      fs.writeFileSync(ctxPath, JSON.stringify(context, null, 2), 'utf8');
-      fs.writeFileSync(logPath, JSON.stringify({ generatedAt: context.generatedAt, baseUrl: context.baseUrl, runLog }, null, 2), 'utf8');
-    }
-    fs.writeFileSync(oasPath, JSON.stringify(openApiSpec, null, 2), 'utf8');
-    printSuccessReport({ collectionPath, envPath, ctxPath: args.noContext ? null : ctxPath, logPath: args.noContext ? null : logPath, oasPath, context, collection, liveResponses });
+    writeArtifacts({ collectionPath, envPath, ctxPath, logPath, oasPath, collection, environment, context, openApiSpec, runLog, args });
+    const extra = writeHistoryAndChangelog({ dir, baseName: withoutExt, htmlPath, changelog });
+    printSuccessReport({ collectionPath, envPath, ctxPath: args.noContext ? null : ctxPath, logPath: args.noContext ? null : logPath, oasPath, context, collection, liveResponses, changelog: extra });
   } else {
     cleanOutputDirectory(defaultOutputDir);
     fs.mkdirSync(defaultOutputDir, { recursive: true });
@@ -220,19 +253,67 @@ export async function runCli(argv = process.argv.slice(2)) {
     const logPath = path.join(defaultOutputDir, `${baseName}.run-log.json`);
     const oasPath = path.join(defaultOutputDir, `${baseName}.openapi.json`);
     const readmePath = path.join(defaultOutputDir, 'README.txt');
-    fs.writeFileSync(collectionPath, JSON.stringify(collection, null, 2), 'utf8');
-    fs.writeFileSync(envPath, JSON.stringify(environment, null, 2), 'utf8');
-    if (!args.noContext) {
-      fs.writeFileSync(ctxPath, JSON.stringify(context, null, 2), 'utf8');
-      fs.writeFileSync(logPath, JSON.stringify({ generatedAt: context.generatedAt, baseUrl: context.baseUrl, runLog }, null, 2), 'utf8');
-    }
-    fs.writeFileSync(oasPath, JSON.stringify(openApiSpec, null, 2), 'utf8');
+    writeArtifacts({ collectionPath, envPath, ctxPath, logPath, oasPath, collection, environment, context, openApiSpec, runLog, args });
     fs.writeFileSync(readmePath, buildOutputReadme({ baseName, context }), 'utf8');
-    printSuccessReport({ collectionPath, envPath, ctxPath: args.noContext ? null : ctxPath, logPath: args.noContext ? null : logPath, oasPath, context, collection, liveResponses });
+    const extra = writeHistoryAndChangelog({ dir: defaultOutputDir, baseName, htmlPath, changelog });
+    printSuccessReport({ collectionPath, envPath, ctxPath: args.noContext ? null : ctxPath, logPath: args.noContext ? null : logPath, oasPath, context, collection, liveResponses, changelog: extra });
   }
 }
 
-function buildContextJson({ project, endpoints, liveResponses, runLog, authMeta, baseUrl, args, totalParsed }) {
+function writeArtifacts({ collectionPath, envPath, ctxPath, logPath, oasPath, collection, environment, context, openApiSpec, runLog, args }) {
+  fs.writeFileSync(collectionPath, JSON.stringify(collection, null, 2), 'utf8');
+  fs.writeFileSync(envPath, JSON.stringify(environment, null, 2), 'utf8');
+  if (!args.noContext) {
+    fs.writeFileSync(ctxPath, JSON.stringify(context, null, 2), 'utf8');
+    fs.writeFileSync(logPath, JSON.stringify({ generatedAt: context.generatedAt, baseUrl: context.baseUrl, runLog, diff: context.changelog }, null, 2), 'utf8');
+  }
+  fs.writeFileSync(oasPath, JSON.stringify(openApiSpec, null, 2), 'utf8');
+}
+
+function getDocumentDate(htmlPath) {
+  try {
+    const bytes = fs.readFileSync(htmlPath);
+    const raw = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+      ? bytes.subarray(3).toString('utf8')
+      : (() => { try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return new TextDecoder('windows-1252').decode(bytes); } })();
+    const m = raw.match(/generator[^}]*time\s*[:=]\s*["']([^"']+)["']/i) || raw.match(/["']time["']\s*:\s*["']([^"']+)["']/i) || raw.match(/<meta[^>]+name=["']date["'][^>]+content=["']([^"']+)["']/i);
+    if (m && m[1] && m[1].trim() && !/<%/.test(m[1])) return m[1].trim();
+  } catch { /* fallback to mtime */ }
+  try {
+    return fs.statSync(htmlPath).mtime.toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
+function writeHistoryAndChangelog({ dir, baseName, htmlPath, changelog }) {
+  const historyDir = path.join(dir, 'history');
+  fs.mkdirSync(historyDir, { recursive: true });
+  const snapshotPath = path.join(historyDir, 'current.html');
+  let changed = true;
+  if (fs.existsSync(snapshotPath)) {
+    try {
+      const a = fs.readFileSync(snapshotPath);
+      const b = fs.readFileSync(htmlPath);
+      const strip = (buf) => (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf ? buf.subarray(3) : buf);
+      changed = !strip(a).equals(strip(b));
+    } catch { changed = true; }
+  }
+  if (changed) fs.copyFileSync(htmlPath, snapshotPath);
+  try {
+    for (const f of fs.readdirSync(historyDir)) {
+      if (f !== 'current.html' && f.endsWith('.html')) fs.unlinkSync(path.join(historyDir, f));
+    }
+  } catch { /* ignore */ }
+  if (!changelog) return { snapshotPath, changed };
+  const jsonPath = path.join(dir, `${baseName}.changelog.json`);
+  const htmlReportPath = path.join(dir, `${baseName}.changelog.html`);
+  fs.writeFileSync(jsonPath, JSON.stringify(changelog, null, 2), 'utf8');
+  fs.writeFileSync(htmlReportPath, buildChangelogHtml(changelog), 'utf8');
+  return { snapshotPath, jsonPath, htmlReportPath, changed };
+}
+
+function buildContextJson({ project, endpoints, liveResponses, runLog, authMeta, baseUrl, args, totalParsed, changelog }) {
   const groups = {};
   for (const ep of endpoints) {
     const g = ep.groupTitle || ep.group || 'General';
@@ -256,6 +337,7 @@ function buildContextJson({ project, endpoints, liveResponses, runLog, authMeta,
     project: { title: project.title, description: project.description },
     baseUrl: baseUrl || '{{base_url}}',
     auth: authMeta,
+    changelog: changelog ? changelog.summary : null,
     filters: {
       filterGroup: args.filterGroup || null,
       filterMethod: args.filterMethod || null,
@@ -301,12 +383,14 @@ function buildContextJson({ project, endpoints, liveResponses, runLog, authMeta,
       environment: '*.postman_environment.json — import vao Postman (Environments), chua base_url/token/email/password.',
       context: '*.context.json — paste NGUYEN FILE nay cho AI Agent de nam toan bo ngu canh API trong 1 lan.',
       runLog: '*.run-log.json — log structured tung request live (status/duration/error) de debug.',
-      openapi: '*.openapi.json — OpenAPI 3.0 spec (AI thich hon Postman, dung cho codegen).',
+      openapi: '*.openapi.json — OpenAPI 3.0 spec (AI thích hơn Postman, dùng cho codegen).',
+      ...(changelog ? { changelog: '*.changelog.json / *.changelog.html — lịch sử thay đổi API.' } : {}),
+      history: 'history/current.html — snapshot HTML hiện tại, chỉ cập nhật khi tài liệu thay đổi.',
     },
     tips: [
-      'Import ca 2 file collection + environment vao Postman, chon environment o goc tren ben trai.',
-      'Chay POST /v1/clients/web/login truoc — Test Script tu luu token vao {{token}}.',
-      'De AI hieu nhanh: paste NGUYEN FILE *.context.json (khong cat) vao prompt.',
+      'Import cả 2 file collection + environment vào Postman, chọn environment ở góc trên bên trái.',
+      'Chạy POST /v1/clients/web/login trước — Test Script tự lưu token vào {{token}}.',
+      'Để AI hiểu nhanh: paste NGUYÊN FILE *.context.json (không cắt) vào prompt.',
     ],
   };
 }
@@ -391,6 +475,8 @@ function buildOutputReadme({ baseName, context }) {
     `  - ${baseName}.context.json                -> PASTE NGUYEN FILE nay cho AI Agent`,
     `  - ${baseName}.run-log.json                -> Log chi tiet tung request live`,
     `  - ${baseName}.openapi.json                -> OpenAPI 3.0 (cho AI / codegen)`,
+    ...(context.changelog ? [`  - ${baseName}.changelog.json/html     -> Lịch sử thay đổi API`] : []),
+    `  - history/current.html                     -> Snapshot HTML tài liệu hiện tại`,
     '',
     `Endpoints: ${context.stats.totalExported}/${context.stats.totalParsed} | Live OK: ${context.stats.live.successes}/${context.stats.live.attempts}`,
     `Groups: ${context.stats.totalGroups} | Methods: ${JSON.stringify(context.stats.methods)}`,
@@ -438,16 +524,23 @@ function printBanner() {
 =====================================================`)));
 }
 
-function printSuccessReport({ collectionPath, envPath, ctxPath, logPath, oasPath, context, collection, liveResponses }) {
+function printSuccessReport({ collectionPath, envPath, ctxPath, logPath, oasPath, context, collection, liveResponses, changelog }) {
   console.log(colors.bold(colors.green(`\nSuccess! Outputs generated:`)));
   console.log(colors.bold(`  Collection : ${collectionPath}`));
   console.log(colors.bold(`  Environment: ${envPath}`));
   console.log(colors.bold(`  OpenAPI    : ${oasPath}`));
-  if (ctxPath) console.log(colors.bold(`  Context    : ${ctxPath}  <- paste NGUYEN FILE nay cho AI`));
+  if (ctxPath) console.log(colors.bold(`  Context    : ${ctxPath}  <- paste NGUYÊN FILE này cho AI`));
   if (logPath) console.log(colors.bold(`  Run log    : ${logPath}`));
+  if (changelog?.jsonPath) console.log(colors.bold(`  Changelog  : ${changelog.jsonPath}`));
+  if (changelog?.htmlReportPath) console.log(colors.bold(`               ${changelog.htmlReportPath}`));
+  if (changelog?.snapshotPath) console.log(colors.bold(`  Snapshot   : ${changelog.snapshotPath}`));
   console.log(colors.gray(`   • Total Endpoints:   ${context.stats.totalExported} (${context.stats.totalParsed} parsed)`));
   console.log(colors.gray(`   • Total Folders:     ${collection.item.length}`));
   console.log(colors.gray(`   • Live Responses:    ${liveResponses.size} (${context.stats.live.successes} OK / ${context.stats.live.attempts} attempts)`));
+  if (context.changelog) {
+    console.log(colors.yellow(`   • API Changes:       ${context.changelog.breaking} breaking, ${context.changelog.changed} changed, ${context.changelog.added} added`));
+    if (context.changelog.breaking > 0) console.log(colors.red(`     Breaking changes cần kiểm tra!`));
+  }
   if (context.warnings.length > 0) {
     console.log(colors.yellow(`   • Warnings:          ${context.warnings.join(' | ')}`));
   }
@@ -461,7 +554,10 @@ Usage:
   htmltpostman [options]
 
 Options:
-  --html <path>         Path to ApiDoc HTML documentation file
+  --html <path>         Path to ApiDoc HTML documentation file (current version)
+  --old <path>          Previous HTML file; generate API changelog JSON and HTML
+  --old-framework <str> Framework used by old docs, e.g. Laravel 9.x
+  --framework <str>     Framework used by current docs, e.g. Laravel 11.x
   --base-url <url>, -u  Target backend base URL (e.g. https://api.example.com)
   --token <token>, -t   Bearer token for authenticated API requests
   --email <email>       Admin login email (default: admin@admin.com)

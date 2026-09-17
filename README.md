@@ -44,4 +44,19 @@ htmltpostman --html "./docs.html" --base-url "https://api.example.com" --token "
 
 # Offline / Dry-run mode (no network calls, creates Postman collection directly from HTML)
 htmltpostman --html "./docs.html" --no-live
+
+# Compare old and current documentation, with explicit Laravel versions
+htmltpostman --html "C:\\Users\\VTOS\\Downloads\\new.html" --old "C:\\Users\\VTOS\\Downloads\\old.html" --old-framework "Laravel 9.x" --framework "Laravel 11.x" --no-live
 ```
+
+## Version comparison and history
+
+`--html` luôn là tài liệu hiện tại; `--old` là tài liệu phiên bản trước. Khi có `--old`, CLI tạo:
+
+- `*.changelog.html`: báo cáo dễ đọc cho con người, nêu rõ endpoint nào đổi và ảnh hưởng gì.
+- `*.changelog.json`: dữ liệu chi tiết cho AI/CI.
+- `history/current.html`: snapshot HTML hiện tại; chỉ ghi đè khi nội dung tài liệu thực sự thay đổi.
+
+Các thay đổi được phân loại thành `breaking`, `changed` và `added`. Ví dụ thêm một trường body không bắt buộc sẽ hiện là “Thêm body `field_name` (không bắt buộc)”; thêm trường bắt buộc hoặc xóa endpoint sẽ được đánh dấu `breaking`.
+
+HTML ApiDoc không luôn chứa thông tin phiên bản framework. Nếu cần hiển thị nâng cấp framework, truyền rõ `--old-framework "Laravel 9.x"` và `--framework "Laravel 11.x"`; CLI không tự suy đoán phiên bản từ tên file.

@@ -22,6 +22,9 @@ export const colors = {
 export function parseArgs(argv = process.argv.slice(2)) {
   const args = {
     html: '',
+    old: '',
+    framework: '',
+    oldFramework: '',
     baseUrl: '',
     token: '',
     email: 'admin@admin.com',
@@ -55,7 +58,19 @@ export function parseArgs(argv = process.argv.slice(2)) {
     } else if (arg === '--html' && i + 1 < argv.length) {
       args.html = argv[++i];
     } else if (arg.startsWith('--html=')) {
-      args.html = arg.split('=')[1];
+      args.html = arg.split('=').slice(1).join('=');
+    } else if (arg === '--old' && i + 1 < argv.length) {
+      args.old = argv[++i];
+    } else if (arg.startsWith('--old=')) {
+      args.old = arg.split('=').slice(1).join('=');
+    } else if (arg === '--framework' && i + 1 < argv.length) {
+      args.framework = argv[++i];
+    } else if (arg.startsWith('--framework=')) {
+      args.framework = arg.split('=').slice(1).join('=');
+    } else if (arg === '--old-framework' && i + 1 < argv.length) {
+      args.oldFramework = argv[++i];
+    } else if (arg.startsWith('--old-framework=')) {
+      args.oldFramework = arg.split('=').slice(1).join('=');
     } else if ((arg === '--base-url' || arg === '-u') && i + 1 < argv.length) {
       args.baseUrl = argv[++i];
     } else if (arg.startsWith('--base-url=')) {
@@ -127,14 +142,28 @@ export function normalizeBaseUrl(url) {
 
 export function cleanHtml(html) {
   if (!html) return '';
+  const entities = {
+    amp: '&',
+    apos: "'",
+    gt: '>',
+    hellip: '…',
+    ldquo: '“',
+    lsquo: '‘',
+    mdash: '—',
+    nbsp: ' ',
+    ndash: '–',
+    quot: '"',
+    rdquo: '”',
+    rsquo: '’',
+    lt: '<',
+  };
   return html
     .replace(/<br\s*[\/]?>/gi, '\n')
     .replace(/<\/p>/gi, '\n')
     .replace(/<[^>]+>/g, '')
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
+    .replace(/&#x([\da-f]+);/gi, (_, value) => String.fromCodePoint(parseInt(value, 16)))
+    .replace(/&#(\d+);/g, (_, value) => String.fromCodePoint(parseInt(value, 10)))
+    .replace(/&([a-z][a-z\d]+);/gi, (match, name) => entities[name.toLowerCase()] ?? match)
     .trim();
 }
 
